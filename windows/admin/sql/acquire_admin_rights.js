@@ -1,26 +1,38 @@
-if (WScript.Arguments.length < 1) {
-  Trace("Usage: acquire_admin_rights.js <instance-name>");
+var instance = "MSSQLSERVER";
+
+if (WScript.Arguments.length > 1) {
+  Trace("Usage: acquire_admin_rights.js [<instance-name>]");
   WScript.Quit(1);
 }
+else if (WScript.Arguments.length == 1) {
+  instance = WScript.Arguments(0);
+}
 
-var instance = WScript.Arguments(0);
+AcquireAdminRights(instance);
 
-Trace("Processing instance '" + instance + "'");
-Trace("Setting up single user mode...");
-EnableSingleUserMode(instance);
-Trace("Done");
-Trace("Restarting the service '" + InstanceServiceName(instance) + "'");
-RestartService(InstanceServiceName(instance));
-Trace("Done");
-Trace("Adding '" + GetCurrentUser() + "' as SQL server admin...");
-AddAdmin(instance, GetCurrentUser());
-Trace("Done");
-Trace("Disabling single user mode...");
-DisableSingleUserMode(instance);
-Trace("Done");
-Trace("Restarting the service '" + InstanceServiceName(instance) + "'");
-RestartService(InstanceServiceName(instance));
-Trace("Done");
+function AcquireAdminRights(instance) {
+  try {
+    Trace("Processing instance '" + instance + "'");
+    Trace("Setting up single user mode...");
+    EnableSingleUserMode(instance);
+    Trace("Done");
+    Trace("Restarting the service '" + InstanceServiceName(instance) + "'");
+    RestartService(InstanceServiceName(instance));
+    Trace("Done");
+    Trace("Adding '" + GetCurrentUser() + "' as SQL server admin...");
+    AddAdmin(instance, GetCurrentUser());
+    Trace("Done");
+    Trace("Disabling single user mode...");
+    DisableSingleUserMode(instance);
+    Trace("Done");
+    Trace("Restarting the service '" + InstanceServiceName(instance) + "'");
+    RestartService(InstanceServiceName(instance));
+    Trace("Done");
+  }
+  catch (exception) {
+    Trace(exception.message);
+  }
+}
 
 function AddAdmin(instance, user) {
   ExecuteCommand(instance, "EXEC sp_addsrvrolemember '" + user + "', 'sysadmin'");
@@ -31,7 +43,8 @@ function InstanceServiceName(instance) {
 }
 
 function InstanceProperty(instance, property) {
-  return "SqlServiceAdvancedProperty.PropertyIndex=13,SqlServiceType=1,PropertyName='" + property + "',ServiceName='" + instance + "'";
+  return "SqlServiceAdvancedProperty.PropertyIndex=13,SqlServiceType=1,PropertyName='" 
+    + property + "',ServiceName='" + InstanceServiceName(instance) + "'";
 }
 
 function GetPropertyValue(wmi, path) {
@@ -78,26 +91,43 @@ function DisableSingleUserMode(instance) {
   ModifyStartupParameters(instance, StripSingleUserMode);
 }
 
-function OpenSqlWmiNamespace(instance) {
-  var sqlNamespace = "WINMGMTS:\\\\.\\root\\Microsoft\\SqlServer\\";
-  var wql = "SELECT * from ServerSettings WHERE InstanceName='" + instance + "'";
-  var wmi = null;
+function LookupInstanceContext(instance, scope) {
   try {
-    wmi = GetObject(sqlNamespace + "ComputerManagement10");
+    var wmi = GetObject("WINMGMTS:\\\\.\\root\\Microsoft\\SqlServer\\" + scope);
+    var settings = new Enumerator(wmi.ExecQuery("SELECT * FROM ServerSettings WHERE InstanceName='" + instance + "'"));
+    if (!settings.atEnd()) {
+      return wmi;
+    }
   }
-  catch (exception) {
-    return GetObject(sqlNamespace + "ComputerManagement");
+  catch (exception) {}
+  return null;
+}
+
+function OpenSqlWmiNamespace(instance) {
+  var wmi = LookupInstanceContext(instance, "ComputerManagement10");
+  if (wmi != null) {
+    return wmi;
   }
-  return !(new Enumerator(wmi.ExecQuery(wql))).atEnd() ? 
-    wmi : GetObject(sqlNamespace + "ComputerManagement");
+  var wmi = LookupInstanceContext(instance, "ComputerManagement10");
+  if (wmi != null) {
+    return wmi;
+  }
+
+  throw new Error("Instance '" + instance + "' not found.");
+}
+
+function ConnectionStringInstanceComponent(instance) {
+  return instance != "MSSQLSERVER" ? "\\" + instance : "";
+}
+
+function ConnectionString(instance) {
+  return "Provider=sqloledb;Data Source=(local)" + 
+    ConnectionStringInstanceComponent(instance) + ";Integrated Security=SSPI;";
 }
 
 function Connect(instance) {
   var connection = new ActiveXObject("ADODB.Connection");
-  connection.ConnectionString = instance != "MSSQLSERVER" ?
-    "Provider=sqloledb;Data Source=(local)\\" + instance + ";Integrated Security=SSPI;" :
-    "Provider=sqloledb;Data Source=(local);Integrated Security=SSPI;";
-  Trace(connection.ConnectionString);
+  connection.ConnectionString = ConnectionString(instance);
   connection.Open();
   connection.CommandTimeout = 600;
   return connection;
