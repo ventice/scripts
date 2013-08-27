@@ -103,14 +103,18 @@ function LookupInstanceContext(instance, scope) {
   return null;
 }
 
+function EnumerateSqlNamespaces() {
+  var wmi = GetObject("WINMGMTS:\\\\.\\root\\Microsoft\\SqlServer");
+  return new Enumerator(wmi.ExecQuery("SELECT * FROM __NAMESPACE WHERE Name LIKE 'ComputerManagement%'"));
+}
+
 function OpenSqlWmiNamespace(instance) {
-  var wmi = LookupInstanceContext(instance, "ComputerManagement10");
-  if (wmi != null) {
-    return wmi;
-  }
-  var wmi = LookupInstanceContext(instance, "ComputerManagement10");
-  if (wmi != null) {
-    return wmi;
+  var namespaces = EnumerateSqlNamespaces();
+  for (; !namespaces.atEnd(); namespaces.moveNext()) {
+    var wmi = LookupInstanceContext(instance, namespaces.item().Name);
+    if (wmi != null) {
+      return wmi;
+    }
   }
 
   throw new Error("Instance '" + instance + "' not found.");
