@@ -109,8 +109,7 @@ function EnumerateSqlNamespaces() {
 }
 
 function OpenSqlWmiNamespace(instance) {
-  var namespaces = EnumerateSqlNamespaces();
-  for (; !namespaces.atEnd(); namespaces.moveNext()) {
+  for (var namespaces = EnumerateSqlNamespaces(); !namespaces.atEnd(); namespaces.moveNext()) {
     var wmi = LookupInstanceContext(instance, namespaces.item().Name);
     if (wmi != null) {
       return wmi;
